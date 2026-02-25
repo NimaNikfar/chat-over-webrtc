@@ -4,16 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 interface Props {
-  chatLog: string[];
+  chatLog:     string[];
   channelOpen: boolean;
-  onSend: (message: string) => boolean;
+  onSend:      (message: string) => void;   // ← was "boolean", now "void"
 }
 
 export function ChatCard({ chatLog, channelOpen, onSend }: Props) {
   const [message, setMessage] = useState("");
 
   const handleSend = () => {
-    if (onSend(message)) setMessage("");
+    if (!message.trim()) return;   // guard replaces the old boolean check
+    onSend(message);
+    setMessage("");                // always clear after sending
   };
 
   return (

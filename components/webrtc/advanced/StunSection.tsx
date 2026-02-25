@@ -3,12 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 interface Props {
-  useDefaultStun: boolean;
-  customStunList: string[];
+  useDefaultStun:  boolean;
+  customStunList:  string[];
   onToggleDefault: (val: boolean) => void;
-  onAdd: (url: string) => string | null;
-  onRemove: (url: string) => void;
+  onAdd:           (url: string) => void;
+  onRemove:        (url: string) => void;   // ← string, not number
 }
+
+const STUN_REGEX = /^(stun|stuns):\S+/i;
 
 export function StunSection({
   useDefaultStun,
@@ -18,10 +20,26 @@ export function StunSection({
   onRemove,
 }: Props) {
   const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleAdd = () => {
-    const error = onAdd(input.trim());
-    if (error) return alert(error);
+    const url = input.trim();
+
+    if (!url) {
+      setError("Please enter a STUN URL.");
+      return;
+    }
+    if (!STUN_REGEX.test(url)) {
+      setError("URL must start with stun: or stuns:");
+      return;
+    }
+    if (customStunList.includes(url)) {
+      setError("This server is already in the list.");
+      return;
+    }
+
+    setError(null);
+    onAdd(url);
     setInput("");
   };
 
@@ -43,13 +61,17 @@ export function StunSection({
         <Input
           placeholder="stun:yourserver.com:3478"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => { setInput(e.target.value); setError(null); }}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
         />
         <Button variant="outline" onClick={handleAdd}>
           Add
         </Button>
       </div>
+
+      {error && (
+        <p className="text-xs text-red-500">⚠️ {error}</p>
+      )}
 
       {customStunList.length > 0 && (
         <div className="space-y-1">
@@ -63,7 +85,7 @@ export function StunSection({
                 size="sm"
                 variant="ghost"
                 className="text-red-500 h-6 px-2"
-                onClick={() => onRemove(url)}
+                onClick={() => onRemove(url)}   // ← passes url string directly
               >
                 ✕
               </Button>

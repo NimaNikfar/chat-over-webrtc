@@ -1,50 +1,35 @@
-import { useState, useEffect } from "react";
+// components/webrtc/hooks/useAdvancedSettings.ts
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+// ─── Settings shape ────────────────────────────────────────────────────────────
 
 export interface AdvancedSettings {
   useDefaultStun: boolean;
   customStunList: string[];
-  turnUrl: string;
-  turnUser: string;
-  turnCred: string;
+  turnUrl:        string;
+  turnUser:       string;
+  turnCred:       string;
 }
 
-const STORAGE_KEY = "webrtc_advanced_settings";
-
-export const DEFAULT_SETTINGS: AdvancedSettings = {
+const DEFAULTS: AdvancedSettings = {
   useDefaultStun: true,
   customStunList: [],
-  turnUrl: "",
-  turnUser: "",
-  turnCred: "",
+  turnUrl:        "",
+  turnUser:       "",
+  turnCred:       "",
 };
 
-function loadSettings(): AdvancedSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw) as Partial<AdvancedSettings>;
-    return {
-      useDefaultStun: parsed.useDefaultStun ?? DEFAULT_SETTINGS.useDefaultStun,
-      customStunList: Array.isArray(parsed.customStunList)
-        ? parsed.customStunList
-        : DEFAULT_SETTINGS.customStunList,
-      turnUrl:  parsed.turnUrl  ?? DEFAULT_SETTINGS.turnUrl,
-      turnUser: parsed.turnUser ?? DEFAULT_SETTINGS.turnUser,
-      turnCred: parsed.turnCred ?? DEFAULT_SETTINGS.turnCred,
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
+const STORAGE_KEY = "webrtc-advanced-settings";
+
+// ─── Standalone helper — also used by AdvancedCard for ICE test ───────────────
 
 export function buildIceServers(s: AdvancedSettings): RTCIceServer[] {
   const servers: RTCIceServer[] = [];
 
   if (s.useDefaultStun) {
-    servers.push(
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" }
-    );
+    servers.push({ urls: "stun:stun.l.google.com:19302" });
   }
 
   s.customStunList.forEach((url) => {
@@ -53,63 +38,84 @@ export function buildIceServers(s: AdvancedSettings): RTCIceServer[] {
 
   if (s.turnUrl.trim()) {
     servers.push({
-      urls: s.turnUrl.trim(),
-      ...(s.turnUser.trim() && { username: s.turnUser.trim() }),
-      ...(s.turnCred.trim() && { credential: s.turnCred.trim() }),
+      urls:       s.turnUrl.trim(),
+      username:   s.turnUser,
+      credential: s.turnCred,
     });
   }
 
   return servers;
 }
 
-export function useAdvancedSettings() {
-  const [settings, setSettings] = useState<AdvancedSettings>(DEFAULT_SETTINGS);
-  const [savedIndicator, setSavedIndicator] = useState(false);
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
-  // Hydrate from localStorage on mount
+export function useAdvancedSettings() {
+  const [settings,          setSettings]          = useState<AdvancedSettings>(DEFAULTS);
+  const [savedIndicator,    setSavedIndicator]    = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Load from localStorage on mount
   useEffect(() => {
-    setSettings(loadSettings());
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<AdvancedSettings>;
+        setSettings((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {
+      console.warn("[useAdvancedSettings] failed to load from storage");
+    }
   }, []);
 
-  const update = <K extends keyof AdvancedSettings>(
-    key: K,
-    value: AdvancedSettings[K]
-  ) => setSettings((prev) => ({ ...prev, [key]: value }));
+  // Generic field updater
+  const update = useCallback(
+    <K extends keyof AdvancedSettings>(key: K, value: AdvancedSettings[K]) => {
+      setSettings((prev) => ({ ...prev, [key]: value }));
+      setHasUnsavedChanges(true);
+    },
+    []
+  );
 
-  const addStun = (url: string): string | null => {
-    if (!url.trim()) return "Enter a STUN URL first";
-    if (!url.startsWith("stun:"))
-      return 'STUN URL must start with "stun:" — e.g. stun:myserver.com:3478';
-    if (settings.customStunList.includes(url)) return "Already added";
-    update("customStunList", [...settings.customStunList, url.trim()]);
-    return null;
-  };
+  // ── STUN list helpers ──────────────────────────────────────────────────────
 
-  const removeStun = (url: string) => {
-    update(
-      "customStunList",
-      settings.customStunList.filter((s) => s !== url)
-    );
-  };
+  const addStun = useCallback((url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    setSettings((prev) => ({
+      ...prev,
+      customStunList: [...prev.customStunList, trimmed],
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
 
-  const save = () => {
+  // Accepts the URL string — matches StunSection's onRemove(url) call
+  const removeStun = useCallback((url: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      customStunList: prev.customStunList.filter((u) => u !== url),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // ── Persistence ───────────────────────────────────────────────────────────
+
+  const save = useCallback(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      setHasUnsavedChanges(false);
       setSavedIndicator(true);
       setTimeout(() => setSavedIndicator(false), 2000);
+      console.log("[useAdvancedSettings] saved:", settings);
     } catch {
-      console.warn("Failed to save settings");
+      console.warn("[useAdvancedSettings] failed to save");
     }
-  };
+  }, [settings]);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    setSettings(DEFAULT_SETTINGS);
-  };
-
-  const savedSettings = loadSettings();
-  const hasUnsavedChanges =
-    JSON.stringify(settings) !== JSON.stringify(savedSettings);
+    setSettings(DEFAULTS);
+    setHasUnsavedChanges(false);
+  }, []);
 
   return {
     settings,
